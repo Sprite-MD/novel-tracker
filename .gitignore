@@ -37,6 +37,9 @@ yarn-error.log*
 *.xlsx
 scripts/*.csv
 
+# sqlite database
+/data
+
 # vercel
 .vercel
 

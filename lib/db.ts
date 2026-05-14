@@ -1,11 +1,13 @@
 import type { Novel, NovelCreate, NovelUpdate, Status } from '@/lib/types'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeNovel(row: any): Novel {
-  return { ...row, status: (row.status ?? []) as Status[] }
+function normalizeRow(row: Record<string, unknown>): Novel {
+  return {
+    ...row,
+    liked: row.liked === 1 || row.liked === true,
+    status: typeof row.status === 'string' ? JSON.parse(row.status) as Status[] : (row.status ?? []) as Status[],
+  } as Novel
 }
 
-// Small words that stay lowercase unless they're the first word
 const LOWERCASE_WORDS = new Set([
   'a', 'an', 'the', 'and', 'but', 'or', 'nor', 'for', 'so', 'yet',
   'at', 'by', 'in', 'of', 'on', 'to', 'up', 'as', 'is', 'it',
@@ -23,63 +25,85 @@ function toTitleCase(str: string): string {
     .join(' ')
 }
 
-function isSupabaseConfigured() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-  return url.startsWith('http') && !url.includes('your_supabase')
+function now() {
+  return new Date().toISOString()
 }
 
 export async function listNovels(): Promise<{ data: Novel[]; error: string | null }> {
-  if (!isSupabaseConfigured()) {
-    const { mockStore } = await import('@/lib/mockStore')
-    return { data: mockStore.list(), error: null }
+  try {
+    const { getDb } = await import('@/lib/sqlite')
+    const rows = getDb().prepare('SELECT * FROM novels ORDER BY name ASC').all() as Record<string, unknown>[]
+    return { data: rows.map(normalizeRow), error: null }
+  } catch (err) {
+    return { data: [], error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const { getSupabaseServer } = await import('@/lib/supabase')
-  const { data, error } = await getSupabaseServer()
-    .from('novels')
-    .select('*')
-    .order('name', { ascending: true })
-  return { data: (data ?? []).map(normalizeNovel), error: error?.message ?? null }
 }
 
 export async function createNovel(input: NovelCreate): Promise<{ data: Novel | null; error: string | null }> {
-  const normalized = { ...input, name: toTitleCase(input.name) }
-  if (!isSupabaseConfigured()) {
-    const { mockStore } = await import('@/lib/mockStore')
-    return { data: mockStore.create(normalized), error: null }
+  try {
+    const { getDb } = await import('@/lib/sqlite')
+    const id = crypto.randomUUID()
+    const ts = now()
+    const row = {
+      id,
+      name: toTitleCase(input.name),
+      chapter: input.chapter ?? null,
+      last_read: input.last_read ?? null,
+      notes: input.notes ?? null,
+      origin: input.origin ?? null,
+      status: JSON.stringify(input.status ?? []),
+      liked: input.liked ? 1 : 0,
+      created_at: ts,
+      updated_at: ts,
+    }
+    getDb().prepare(`
+      INSERT INTO novels (id, name, chapter, last_read, notes, origin, status, liked, created_at, updated_at)
+      VALUES (@id, @name, @chapter, @last_read, @notes, @origin, @status, @liked, @created_at, @updated_at)
+    `).run(row)
+    const created = getDb().prepare('SELECT * FROM novels WHERE id = ?').get(id)
+    return { data: normalizeRow(created as Record<string, unknown>), error: null }
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const { getSupabaseServer } = await import('@/lib/supabase')
-  const { data, error } = await getSupabaseServer()
-    .from('novels')
-    .insert(normalized)
-    .select()
-    .single()
-  return { data: data ? normalizeNovel(data) : null, error: error?.message ?? null }
 }
 
 export async function updateNovel(id: string, input: NovelUpdate): Promise<{ data: Novel | null; error: string | null }> {
-  const normalized = input.name ? { ...input, name: toTitleCase(input.name) } : input
-  if (!isSupabaseConfigured()) {
-    const { mockStore } = await import('@/lib/mockStore')
-    const updated = mockStore.update(id, normalized)
-    return { data: updated, error: updated ? null : 'Not found' }
+  try {
+    const { getDb } = await import('@/lib/sqlite')
+    const db = getDb()
+    const existing = db.prepare('SELECT * FROM novels WHERE id = ?').get(id) as Record<string, unknown> | undefined
+    if (!existing) return { data: null, error: 'Not found' }
+
+    const merged = {
+      ...existing,
+      ...input,
+      name: input.name ? toTitleCase(input.name) : existing.name,
+      status: JSON.stringify(input.status ?? JSON.parse(existing.status as string)),
+      liked: 'liked' in input ? (input.liked ? 1 : 0) : existing.liked,
+      updated_at: now(),
+    }
+
+    db.prepare(`
+      UPDATE novels SET
+        name = @name, chapter = @chapter, last_read = @last_read,
+        notes = @notes, origin = @origin, status = @status,
+        liked = @liked, updated_at = @updated_at
+      WHERE id = @id
+    `).run(merged)
+
+    const updated = db.prepare('SELECT * FROM novels WHERE id = ?').get(id)
+    return { data: normalizeRow(updated as Record<string, unknown>), error: null }
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const { getSupabaseServer } = await import('@/lib/supabase')
-  const { data, error } = await getSupabaseServer()
-    .from('novels')
-    .update(normalized)
-    .eq('id', id)
-    .select()
-    .single()
-  return { data: data ? normalizeNovel(data) : null, error: error?.message ?? null }
 }
 
 export async function deleteNovel(id: string): Promise<{ error: string | null }> {
-  if (!isSupabaseConfigured()) {
-    const { mockStore } = await import('@/lib/mockStore')
-    mockStore.delete(id)
+  try {
+    const { getDb } = await import('@/lib/sqlite')
+    getDb().prepare('DELETE FROM novels WHERE id = ?').run(id)
     return { error: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  const { getSupabaseServer } = await import('@/lib/supabase')
-  const { error } = await getSupabaseServer().from('novels').delete().eq('id', id)
-  return { error: error?.message ?? null }
 }

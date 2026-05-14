@@ -22,7 +22,7 @@ export default async function HomePage() {
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded p-3 text-red-700 text-sm dark:bg-red-900/30 dark:border-red-700 dark:text-red-300">
-            Failed to load novels: {error}. Make sure your Supabase environment variables are set.
+            Failed to load novels: {error}
           </div>
         )}
 

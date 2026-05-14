@@ -15,28 +15,19 @@ A personal web novel reading tracker. Replaces a spreadsheet with a proper UI fo
 ## Stack
 
 - [Next.js](https://nextjs.org) (App Router)
-- [Supabase](https://supabase.com) (PostgreSQL)
+- [SQLite](https://www.sqlite.org) via `better-sqlite3` (local file at `data/novels.db`)
 - [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)
 
 ## Setup
 
-1. Create a Supabase project and run the migrations in `supabase/migrations/` in order
-2. Copy your Supabase keys into `.env.local`:
-
-```
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-```
-
-3. Install and run:
+No external services required. Install and run:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Without Supabase configured, the app runs against an in-memory mock store for local testing.
+The database file is created automatically at `data/novels.db` on first run.
 
 ## Running in Production
 
